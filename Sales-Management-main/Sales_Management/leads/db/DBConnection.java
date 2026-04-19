@@ -7,7 +7,7 @@ import java.sql.SQLException;
 public class DBConnection {
     private static final String URL = "jdbc:mysql://localhost:3306/polymorphs";
     private static final String USER = "root";
-    private static final String PASSWORD = "Harshu200412@";
+    private static final String PASSWORD = "Dhatri2005@$";
 
     private DBConnection() {
     }
