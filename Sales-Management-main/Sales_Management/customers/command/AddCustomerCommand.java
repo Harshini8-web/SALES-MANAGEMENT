@@ -20,9 +20,6 @@ public class AddCustomerCommand implements CustomerCommand {
         try {
             facade.createCustomer(name, email, phone, region);
             System.out.println("SUCCESS: Customer created successfully.");
-        } catch (InvalidCustomerData e) {
-            System.err.println("[MINOR EXCEPTION] " + e.getMessage());
-            System.err.println("-> ACTION: Highlight incorrect fields and request correction.");
         } catch (DuplicateCustomerEntry e) {
             System.err.println("[WARNING EXCEPTION] " + e.getMessage());
         }

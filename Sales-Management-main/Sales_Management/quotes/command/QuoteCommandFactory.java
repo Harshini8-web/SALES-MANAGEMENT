@@ -168,10 +168,14 @@ class ViewQuoteCommand implements QuoteCommand {
             System.out.printf("  %-30s %6s %12s %12s%n", "Product", "Qty", "Unit Price", "Subtotal");
             System.out.println("  " + "-".repeat(65));
 
-            for (QuoteItem item : quote.getItems()) {
-                System.out.printf("  %-30s %6d %12.2f %12.2f%n",
-                        item.getProductName(), item.getQuantity(),
-                        item.getPrice(), item.getSubtotal());
+            if (quote.getItems() != null && !quote.getItems().isEmpty()) {
+                for (QuoteItem item : quote.getItems()) {
+                    System.out.printf("  %-30s %6d %12.2f %12.2f%n",
+                            item.getProductName(), item.getQuantity(),
+                            item.getPrice(), item.getSubtotal());
+                }
+            } else {
+                System.out.println("  (No items in this quote)");
             }
 
             // ---- Display totals ----

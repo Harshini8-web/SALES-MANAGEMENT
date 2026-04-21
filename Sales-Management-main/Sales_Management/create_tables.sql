@@ -10,6 +10,14 @@ CREATE TABLE IF NOT EXISTS customers (
                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS leads (
+                            lead_id INT PRIMARY KEY AUTO_INCREMENT,
+                            name VARCHAR(100) NOT NULL,
+                            company VARCHAR(100),
+                            status VARCHAR(50),
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS deals (
                             deal_id INT PRIMARY KEY AUTO_INCREMENT,
                             customer_id INT,

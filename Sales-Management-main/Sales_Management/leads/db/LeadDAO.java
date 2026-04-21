@@ -3,236 +3,165 @@ package leads.db;
 import leads.exception.LeadException;
 import leads.model.Lead;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
+import java.util.Properties;
+import java.util.stream.Collectors;
 
-/**
- * LeadDAO — Data Access Object for Lead persistence.
- *
- * Implements full CRUD for the `leads` table in the `polymorphs` database.
- *
- * Design rules (from final_db_schema_detailed.pdf):
- * - All queries use PreparedStatement — NO raw SQL string concatenation
- * - DBConnection.getConnection() is the sole connection source
- * - Exceptions mapped to: ORDER_CREATION_FAILED, ORDER_NOT_FOUND,
- * ORDER_UPDATE_CONFLICT
- *
- * @author Bhumika (Leads + Deals module)
- */
 public class LeadDAO {
 
-    private static final Logger logger = Logger.getLogger(LeadDAO.class.getName());
+    private Connection connection;
 
-    // =========================================================================
-    // CREATE
-    // =========================================================================
+    public LeadDAO() {
+        // Don't connect yet - wait until first use
+    }
 
-    /**
-     * Inserts a new lead into the `leads` table.
-     * The auto-generated lead_id is written back into the Lead object.
-     *
-     * @param lead the Lead to persist (name and status must be valid)
-     * @throws LeadException.LeadCreationFailed on any DB error
-     */
-    public void createLead(Lead lead) {
-        String sql = "INSERT INTO leads (name, company, status) VALUES (?, ?, ?)";
+    private void ensureConnection() throws SQLException {
+        if (connection == null || connection.isClosed()) {
+            try {
+                Properties props = new Properties();
+                props.load(Files.newInputStream(Paths.get("application-rds-template.properties")));
 
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                String host = props.getProperty("db.host");
+                String port = props.getProperty("db.port");
+                String dbName = props.getProperty("db.name");
+                String username = props.getProperty("db.username");
+                String password = props.getProperty("db.password");
 
-            stmt.setString(1, lead.getName());
-            stmt.setString(2, lead.getCompany());
-            stmt.setString(3, lead.getStatus());
+                String url = "jdbc:mysql://" + host + ":" + port + "/" + dbName;
+                this.connection = DriverManager.getConnection(url, username, password);
 
-            stmt.executeUpdate();
-
-            try (ResultSet keys = stmt.getGeneratedKeys()) {
-                if (keys.next()) {
-                    lead.setLeadId(keys.getInt(1));
-                    logger.info("LeadDAO.createLead: inserted lead with ID=" + lead.getLeadId());
-                }
+                // Create table if not exists
+                createTableIfNotExists();
+            } catch (Exception e) {
+                throw new SQLException("Failed to initialize database connection", e);
             }
-
-        } catch (SQLException e) {
-            logger.severe("LeadDAO.createLead failed: " + e.getMessage());
-            throw new LeadException.LeadCreationFailed(
-                    "Database error while creating lead: " + e.getMessage(), e);
         }
     }
 
-    // =========================================================================
-    // READ — by lead_id
-    // =========================================================================
+    private void createTableIfNotExists() throws SQLException {
+        String createTableSQL = "CREATE TABLE IF NOT EXISTS leads (" +
+            "lead_id INT PRIMARY KEY AUTO_INCREMENT, " +
+            "name VARCHAR(100) NOT NULL, " +
+            "company VARCHAR(100), " +
+            "status VARCHAR(50), " +
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
+            ")";
+        try (PreparedStatement stmt = connection.prepareStatement(createTableSQL)) {
+            stmt.executeUpdate();
+        }
+        // Ensure columns exist
+        String[] alterSQLs = {
+            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS company VARCHAR(100)",
+            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS status VARCHAR(50)",
+            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        };
+        for (String sql : alterSQLs) {
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.executeUpdate();
+            } catch (SQLException e) {
+                // Column might already exist or other issue, ignore
+            }
+        }
+    }
 
-    /**
-     * Retrieves a single lead by primary key.
-     *
-     * @param leadId the lead_id to look up
-     * @return the matching Lead
-     * @throws LeadException.LeadNotFound       if no lead with that ID exists
-     * @throws LeadException.LeadCreationFailed on DB connectivity issues
-     */
-    public Lead getLeadById(int leadId) {
-        String sql = "SELECT * FROM leads WHERE lead_id = ?";
-
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setInt(1, leadId);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    Lead lead = mapRowToLead(rs);
-                    logger.info("LeadDAO.getLeadById: found lead id=" + leadId);
-                    return lead;
+    public void createLead(Lead lead) {
+        String sql = "INSERT INTO leads (name, company, status) VALUES (?, ?, ?)";
+        try {
+            ensureConnection();
+            try (PreparedStatement stmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                stmt.setString(1, lead.getName());
+                stmt.setString(2, lead.getCompany());
+                stmt.setString(3, lead.getStatus());
+                stmt.executeUpdate();
+                
+                // Get the auto-generated lead_id
+                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        lead.setLeadId(generatedKeys.getInt(1));
+                    }
                 }
             }
-
         } catch (SQLException e) {
-            logger.severe("LeadDAO.getLeadById failed: " + e.getMessage());
-            throw new LeadException.LeadCreationFailed(
-                    "DB error retrieving lead id=" + leadId, e);
+            throw new LeadException.LeadCreationFailed("Database error: " + e.getMessage(), e);
         }
+    }
 
-        // Lead not found — throw ORDER_NOT_FOUND
+    public Lead getLeadById(int leadId) {
+        String sql = "SELECT lead_id, name, company, status, created_at FROM leads WHERE lead_id = ?";
+        try {
+            ensureConnection();
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setInt(1, leadId);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return mapRowToLead(rs);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new LeadException.LeadCreationFailed("DB error retrieving lead", e);
+        }
         throw new LeadException.LeadNotFound(leadId);
     }
 
-    // =========================================================================
-    // READ — all leads
-    // =========================================================================
-
-    /**
-     * Returns all leads, ordered by creation date (newest first).
-     *
-     * @return list of all leads (may be empty)
-     */
     public List<Lead> getAllLeads() {
-        String sql = "SELECT * FROM leads ORDER BY created_at DESC";
         List<Lead> results = new ArrayList<>();
-
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-
-            while (rs.next()) {
-                results.add(mapRowToLead(rs));
-            }
-
-            logger.info("LeadDAO.getAllLeads: retrieved " + results.size() + " leads.");
-            return results;
-
-        } catch (SQLException e) {
-            logger.severe("LeadDAO.getAllLeads failed: " + e.getMessage());
-            throw new LeadException.LeadCreationFailed(
-                    "DB error retrieving all leads", e);
-        }
-    }
-
-    // =========================================================================
-    // READ — by status
-    // =========================================================================
-
-    /**
-     * Returns all leads that match the given status.
-     * Useful for pipeline views (e.g., show all QUALIFIED leads).
-     *
-     * @param status the status to filter by (e.g., "NEW", "QUALIFIED")
-     * @return list of matching leads
-     */
-    public List<Lead> getLeadsByStatus(String status) {
-        String sql = "SELECT * FROM leads WHERE status = ? ORDER BY created_at DESC";
-        List<Lead> results = new ArrayList<>();
-
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, status);
-
-            try (ResultSet rs = stmt.executeQuery()) {
+        String sql = "SELECT lead_id, name, company, status, created_at FROM leads";
+        try {
+            ensureConnection();
+            try (PreparedStatement stmt = connection.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     results.add(mapRowToLead(rs));
                 }
             }
-
-            logger.info("LeadDAO.getLeadsByStatus: found " + results.size() + " leads with status=" + status);
-            return results;
-
         } catch (SQLException e) {
-            logger.severe("LeadDAO.getLeadsByStatus failed: " + e.getMessage());
-            throw new LeadException.LeadCreationFailed(
-                    "DB error retrieving leads with status=" + status, e);
+            throw new LeadException.LeadCreationFailed("DB error retrieving all leads", e);
         }
+        return results;
     }
 
-    // =========================================================================
-    // UPDATE — status
-    // =========================================================================
+    public List<Lead> getLeadsByStatus(String status) {
+        return getAllLeads().stream()
+                .filter(lead -> status.equals(lead.getStatus()))
+                .collect(Collectors.toList());
+    }
 
-    /**
-     * Updates the status of an existing lead.
-     * This should only be called AFTER LeadWorkflowEngine.validateTransition().
-     *
-     * @param leadId    the lead to update
-     * @param newStatus the validated new status
-     * @return true if updated, false if lead not found
-     * @throws LeadException.LeadCreationFailed on DB error
-     */
     public boolean updateLeadStatus(int leadId, String newStatus) {
         String sql = "UPDATE leads SET status = ? WHERE lead_id = ?";
-
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setString(1, newStatus);
-            stmt.setInt(2, leadId);
-
-            int affected = stmt.executeUpdate();
-            logger.info("LeadDAO.updateLeadStatus: " + affected + " row(s) updated for lead id=" + leadId);
-            return affected > 0;
-
+        try {
+            ensureConnection();
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, newStatus);
+                stmt.setInt(2, leadId);
+                return stmt.executeUpdate() > 0;
+            }
         } catch (SQLException e) {
-            logger.severe("LeadDAO.updateLeadStatus failed: " + e.getMessage());
-            throw new LeadException.LeadCreationFailed(
-                    "DB error updating lead id=" + leadId, e);
+            return false;
         }
     }
 
-    // =========================================================================
-    // DELETE
-    // =========================================================================
-
-    /**
-     * Deletes a lead by ID.
-     *
-     * @param leadId the lead to delete
-     * @return true if deleted, false if not found
-     * @throws LeadException.LeadCreationFailed on DB error
-     */
     public boolean deleteLead(int leadId) {
         String sql = "DELETE FROM leads WHERE lead_id = ?";
-
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setInt(1, leadId);
-            int affected = stmt.executeUpdate();
-
-            logger.info("LeadDAO.deleteLead: " + affected + " row(s) deleted for lead id=" + leadId);
-            return affected > 0;
-
+        try {
+            ensureConnection();
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setInt(1, leadId);
+                return stmt.executeUpdate() > 0;
+            }
         } catch (SQLException e) {
-            logger.severe("LeadDAO.deleteLead failed: " + e.getMessage());
-            throw new LeadException.LeadCreationFailed(
-                    "DB error deleting lead id=" + leadId, e);
+            return false;
         }
     }
-
-    // =========================================================================
-    // Private helper — ResultSet → Lead
-    // =========================================================================
 
     private Lead mapRowToLead(ResultSet rs) throws SQLException {
         Lead lead = new Lead();
@@ -240,11 +169,7 @@ public class LeadDAO {
         lead.setName(rs.getString("name"));
         lead.setCompany(rs.getString("company"));
         lead.setStatus(rs.getString("status"));
-
-        Timestamp ts = rs.getTimestamp("created_at");
-        if (ts != null) {
-            lead.setCreatedAt(ts.toLocalDateTime());
-        }
+        lead.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
         return lead;
     }
 }

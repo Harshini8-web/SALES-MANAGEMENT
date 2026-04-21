@@ -1,38 +1,84 @@
 package analytics.db;
 
-import quotes.db.DBConnection;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import com.erp.sdk.config.DatabaseConfig;
+import com.erp.sdk.factory.SubsystemFactory;
+import com.erp.sdk.subsystem.SubsystemName;
+import com.erp.sdk.subsystem.AbstractSubsystem;
+
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class AnalyticsDAO {
 
-    public double calculateTotalRevenue() throws SQLException {
-        double total = 0.0;
-        String query = "SELECT SUM(final_amount) FROM quotes";
+    private AbstractSubsystem facade;
 
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(query);
-                ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                total = rs.getDouble(1);
-            }
+    public AnalyticsDAO() {
+        try {
+            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
+            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+        } catch (Exception e) {
+            System.err.println("Failed to initialize SDK in AnalyticsDAO");
         }
-        return total;
     }
 
-    public int getActiveLeadsCount() throws SQLException {
-        int count = 0;
-        String query = "SELECT COUNT(*) FROM leads";
-
-        try (Connection conn = DBConnection.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(query);
-                ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                count = rs.getInt(1);
+    public void generateForecastReport() {
+        try {
+            List<Map<String, Object>> allDeals = facade.readAll("deals", new HashMap<>(), "integration_lead");
+            
+            double totalPipelineValue = 0;
+            
+            if (allDeals != null) {
+                for (Map<String, Object> row : allDeals) {
+                    if (row.get("amount") instanceof Number) {
+                        totalPipelineValue += ((Number) row.get("amount")).doubleValue();
+                    }
+                }
             }
+            
+            System.out.println("-------------------------------------------------");
+            System.out.println("ANALYTICS: Total System Pipeline Forecast: $" + totalPipelineValue);
+            System.out.println("-------------------------------------------------");
+            
+        } catch (Exception e) {
+            System.err.println("Failed to pull analytics data from the live server.");
+            e.printStackTrace();
         }
-        return count;
+    }
+
+    public double calculateTotalRevenue() {
+        double totalRevenue = 0;
+        try {
+            List<Map<String, Object>> allDeals = facade.readAll("deals", new HashMap<>(), "integration_lead");
+            if (allDeals != null) {
+                for (Map<String, Object> deal : allDeals) {
+                    if (deal.get("amount") instanceof Number) {
+                        totalRevenue += ((Number) deal.get("amount")).doubleValue();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Database error while calculating revenue.");
+        }
+        return totalRevenue;
+    }
+
+    public int getActiveLeadsCount() {
+        int activeCount = 0;
+        try {
+            List<Map<String, Object>> allLeads = facade.readAll("leads", new HashMap<>(), "integration_lead");
+            if (allLeads != null) {
+                for (Map<String, Object> lead : allLeads) {
+                    String status = (String) lead.get("status");
+                    if (status != null && !status.equalsIgnoreCase("LOST") && !status.equalsIgnoreCase("CONVERTED")) {
+                        activeCount++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Database error while counting leads.");
+        }
+        return activeCount;
     }
 }

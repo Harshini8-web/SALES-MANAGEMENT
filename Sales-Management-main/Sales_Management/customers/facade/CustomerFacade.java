@@ -1,10 +1,10 @@
 package customers.facade;
 
-import customers.model.Customer;
-import customers.builder.CustomerBuilder;
 import customers.db.CustomerDAO;
-import customers.exception.CustomerException.*;
-import shared.validation.ValidationEngine;
+import customers.model.Customer;
+import customers.exception.CustomerException;
+
+import java.util.List;
 
 public class CustomerFacade {
     private CustomerDAO customerDAO;
@@ -14,24 +14,28 @@ public class CustomerFacade {
     }
 
     public void createCustomer(String name, String email, String phone, String region) 
-            throws InvalidCustomerData, DuplicateCustomerEntry {
-        
-        // 1. Shared Validation
-        ValidationEngine.validateCustomer(name, email);
-        
-        // 2. Build Object
-        Customer customer = new CustomerBuilder()
-                .setName(name)
-                .setEmail(email)
-                .setPhone(phone)
-                .setRegion(region)
-                .build();
-                
-        // 3. Persist to DB
+            throws CustomerException.DuplicateCustomerEntry {
+        Customer customer = new Customer();
+        customer.setName(name);
+        customer.setEmail(email);
+        customer.setPhone(phone);
+        customer.setRegion(region);
         customerDAO.addCustomer(customer);
     }
 
-    public Customer fetchCustomer(int id) throws CustomerNotFound {
+    public Customer getCustomerById(int id) throws CustomerException.CustomerNotFound {
         return customerDAO.getCustomer(id);
+    }
+
+    public List<Customer> getAllCustomers() {
+        return customerDAO.getAllCustomers();
+    }
+
+    public Customer getCustomerByEmail(String email) {
+        return customerDAO.getCustomerByEmail(email);
+    }
+
+    public List<Customer> getCustomersByRegion(String region) {
+        return customerDAO.getCustomersByRegion(region);
     }
 }
