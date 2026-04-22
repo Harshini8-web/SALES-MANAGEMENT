@@ -1,31 +1,26 @@
 package analytics.db;
 
-import com.erp.sdk.config.DatabaseConfig;
-import com.erp.sdk.factory.SubsystemFactory;
-import com.erp.sdk.subsystem.SubsystemName;
-import com.erp.sdk.subsystem.AbstractSubsystem;
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
 
-import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class AnalyticsDAO {
 
-    private AbstractSubsystem facade;
+    private ErpDatabaseFacade facade;
 
     public AnalyticsDAO() {
         try {
-            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+            this.facade = new ErpDatabaseFacade();
         } catch (Exception e) {
-            System.err.println("Failed to initialize SDK in AnalyticsDAO");
+            System.err.println("Failed to initialize ErpDatabaseFacade in AnalyticsDAO: " + e.getMessage());
         }
     }
 
     public void generateForecastReport() {
         try {
-            List<Map<String, Object>> allDeals = facade.readAll("deals", new HashMap<>(), "integration_lead");
+            List<Map<String, Object>> allDeals = facade.salesManagementSubsystem().readAll("deals", new HashMap<>());
             
             double totalPipelineValue = 0;
             
@@ -50,7 +45,7 @@ public class AnalyticsDAO {
     public double calculateTotalRevenue() {
         double totalRevenue = 0;
         try {
-            List<Map<String, Object>> allDeals = facade.readAll("deals", new HashMap<>(), "integration_lead");
+            List<Map<String, Object>> allDeals = facade.salesManagementSubsystem().readAll("deals", new HashMap<>());
             if (allDeals != null) {
                 for (Map<String, Object> deal : allDeals) {
                     if (deal.get("amount") instanceof Number) {
@@ -67,7 +62,7 @@ public class AnalyticsDAO {
     public int getActiveLeadsCount() {
         int activeCount = 0;
         try {
-            List<Map<String, Object>> allLeads = facade.readAll("leads", new HashMap<>(), "integration_lead");
+            List<Map<String, Object>> allLeads = facade.salesManagementSubsystem().readAll("leads", new HashMap<>());
             if (allLeads != null) {
                 for (Map<String, Object> lead : allLeads) {
                     String status = (String) lead.get("status");

@@ -2,12 +2,8 @@ package deals.db;
 
 import deals.exception.DealException.*;
 import deals.model.Deal;
-import com.erp.sdk.config.DatabaseConfig;
-import com.erp.sdk.factory.SubsystemFactory;
-import com.erp.sdk.subsystem.SubsystemName;
-import com.erp.sdk.subsystem.AbstractSubsystem;
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
 
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,15 +12,18 @@ import java.util.stream.Collectors;
 
 public class DealDAO {
 
-    private AbstractSubsystem facade;
-    private static final String USER = "sales_lead"; // The ERP user for this subsystem
+    private ErpDatabaseFacade facade;
 
     public DealDAO() {
+        initializeFacade();
+    }
+
+    private void initializeFacade() {
         try {
-            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
-        } catch (Exception e) {
-            System.err.println("Failed to initialize SDK in DealDAO");
+            this.facade = new ErpDatabaseFacade();
+        } catch (Throwable e) {
+            System.err.println("Failed to initialize ErpDatabaseFacade in DealDAO: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -40,16 +39,16 @@ public class DealDAO {
             data.put("stage", deal.getStage());
             data.put("status", deal.getStatus());
 
-            long newId = facade.create("deals", data, USER);
-            deal.setDealId((int) newId);
+            Object result = facade.salesManagementSubsystem().create("deals", data);
+            deal.setDealId(((Number) result).intValue());
         } catch (Exception e) {
-            throw new DealCreationFailed("Failed to save deal to database via SDK: " + e.getMessage());
+            throw new DealCreationFailed("Failed to save deal to database via Facade: " + e.getMessage());
         }
     }
 
     public Deal getDeal(int dealId) throws DealNotFound {
         try {
-            Map<String, Object> rs = facade.readById("deals", "deal_id", dealId, USER);
+            Map<String, Object> rs = facade.salesManagementSubsystem().readById("deals", "deal_id", dealId);
             if (rs != null && !rs.isEmpty()) {
                 return mapRowToDeal(rs);
             }
@@ -66,14 +65,14 @@ public class DealDAO {
     public List<Deal> getAllDeals() {
         List<Deal> results = new ArrayList<>();
         try {
-            List<Map<String, Object>> rows = facade.readAll("deals", new HashMap<>(), USER);
+            List<Map<String, Object>> rows = facade.salesManagementSubsystem().readAll("deals", new HashMap<>());
             if (rows != null) {
                 for (Map<String, Object> row : rows) {
                     results.add(mapRowToDeal(row));
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error retrieving deals via SDK: " + e.getMessage());
+            System.err.println("Error retrieving deals via Facade: " + e.getMessage());
         }
         return results;
     }
@@ -96,7 +95,7 @@ public class DealDAO {
             payload.put("stage", newStage);
             payload.put("status", newStatus);
             
-            facade.update("deals", "deal_id", dealId, payload, USER);
+            facade.salesManagementSubsystem().update("deals", "deal_id", dealId, payload);
             return true;
         } catch (Exception e) {
             System.err.println("Error updating deal stage: " + e.getMessage());
@@ -106,7 +105,7 @@ public class DealDAO {
 
     public boolean deleteDeal(int dealId) {
         try {
-            facade.delete("deals", "deal_id", dealId, USER);
+            facade.salesManagementSubsystem().delete("deals", "deal_id", dealId);
             return true;
         } catch (Exception e) {
             System.err.println("Error deleting deal: " + e.getMessage());
@@ -119,7 +118,6 @@ public class DealDAO {
         deal.setDealId(((Number) row.get("deal_id")).intValue());
         deal.setCustomerId(((Number) row.get("customer_id")).intValue());
         
-        // Handle potential different numeric types coming from the database Map
         Object amountObj = row.get("amount");
         if (amountObj instanceof Number) {
             deal.setAmount(((Number) amountObj).doubleValue());

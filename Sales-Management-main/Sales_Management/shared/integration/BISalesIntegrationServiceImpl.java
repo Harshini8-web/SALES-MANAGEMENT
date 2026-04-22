@@ -1,6 +1,5 @@
 package shared.integration;
 
-import com.erp.sdk.subsystem.SalesManagement;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -10,9 +9,9 @@ import java.util.logging.Logger;
 public class BISalesIntegrationServiceImpl implements SalesIntegrationService {
     
     private static final Logger logger = Logger.getLogger(BISalesIntegrationServiceImpl.class.getName());
-    private final SalesManagement erpClient;
+    private final Object erpClient;
 
-    public BISalesIntegrationServiceImpl(SalesManagement erpClient) {
+    public BISalesIntegrationServiceImpl(Object erpClient) {
         this.erpClient = erpClient;
     }
 
@@ -30,9 +29,8 @@ public class BISalesIntegrationServiceImpl implements SalesIntegrationService {
             record.put("created_by", "SALES_MANAGEMENT");
             record.put("created_at", LocalDateTime.now().toString());
 
-            // "sales_lead" is the ERP user specified in the BI document
-            long newId = erpClient.create("sales_records", record, "sales_lead");
-            logger.info("Successfully published sale to BI. Record ID: " + newId);
+            // TODO: Replace with ErpDatabaseFacade when SDK is properly integrated
+            logger.info("BI Integration: Sale record prepared - " + record.toString());
 
         } catch (Exception e) {
             // Graceful Degradation: Do not throw the error. Just log it so the system doesn't crash.

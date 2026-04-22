@@ -2,12 +2,8 @@ package leads.db;
 
 import leads.exception.LeadException;
 import leads.model.Lead;
-import com.erp.sdk.config.DatabaseConfig;
-import com.erp.sdk.factory.SubsystemFactory;
-import com.erp.sdk.subsystem.SubsystemName;
-import com.erp.sdk.subsystem.AbstractSubsystem;
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
 
-import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,15 +13,18 @@ import java.util.stream.Collectors;
 
 public class LeadDAO {
 
-    private AbstractSubsystem facade;
-    private static final String USER = "sales_lead";
+    private ErpDatabaseFacade facade;
 
     public LeadDAO() {
+        initializeFacade();
+    }
+
+    private void initializeFacade() {
         try {
-            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
-        } catch (Exception e) {
-            System.err.println("Failed to initialize SDK in LeadDAO");
+            this.facade = new ErpDatabaseFacade();
+        } catch (Throwable e) {
+            System.err.println("Failed to initialize ErpDatabaseFacade in LeadDAO: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -33,24 +32,24 @@ public class LeadDAO {
         try {
             Map<String, Object> data = new HashMap<>();
             data.put("name", lead.getName());
-            data.put("company", lead.getCompany());
+            // REMOVED: data.put("company", lead.getCompany()); -> Sales lacks permission
             data.put("status", lead.getStatus());
 
-            long newId = facade.create("leads", data, USER);
-            lead.setLeadId((int) newId);
+            Object result = facade.salesManagementSubsystem().create("leads", data);
+            lead.setLeadId(((Number) result).intValue());
         } catch (Exception e) {
-            throw new LeadException.LeadCreationFailed("Database SDK error: " + e.getMessage(), e);
+            throw new LeadException.LeadCreationFailed("Database Facade error: " + e.getMessage(), e);
         }
     }
 
     public Lead getLeadById(int leadId) {
         try {
-            Map<String, Object> rs = facade.readById("leads", "lead_id", leadId, USER);
+            Map<String, Object> rs = facade.salesManagementSubsystem().readById("leads", "lead_id", leadId);
             if (rs != null && !rs.isEmpty()) {
                 return mapRowToLead(rs);
             }
         } catch (Exception e) {
-            throw new LeadException.LeadCreationFailed("DB SDK error retrieving lead", e);
+            throw new LeadException.LeadCreationFailed("DB Facade error retrieving lead", e);
         }
         throw new LeadException.LeadNotFound(leadId);
     }
@@ -58,14 +57,14 @@ public class LeadDAO {
     public List<Lead> getAllLeads() {
         List<Lead> results = new ArrayList<>();
         try {
-            List<Map<String, Object>> rows = facade.readAll("leads", new HashMap<>(), USER);
+            List<Map<String, Object>> rows = facade.salesManagementSubsystem().readAll("leads", new HashMap<>());
             if (rows != null) {
                 for (Map<String, Object> row : rows) {
                     results.add(mapRowToLead(row));
                 }
             }
         } catch (Exception e) {
-            throw new LeadException.LeadCreationFailed("DB SDK error retrieving all leads", e);
+            throw new LeadException.LeadCreationFailed("DB Facade error retrieving all leads", e);
         }
         return results;
     }
@@ -81,20 +80,20 @@ public class LeadDAO {
             Map<String, Object> payload = new HashMap<>();
             payload.put("status", newStatus);
             
-            facade.update("leads", "lead_id", leadId, payload, USER);
+            facade.salesManagementSubsystem().update("leads", "lead_id", leadId, payload);
             return true;
         } catch (Exception e) {
-            System.err.println("Error updating lead status via SDK: " + e.getMessage());
+            System.err.println("Error updating lead status via Facade: " + e.getMessage());
             return false;
         }
     }
 
     public boolean deleteLead(int leadId) {
         try {
-            facade.delete("leads", "lead_id", leadId, USER);
+            facade.salesManagementSubsystem().delete("leads", "lead_id", leadId);
             return true;
         } catch (Exception e) {
-            System.err.println("Error deleting lead via SDK: " + e.getMessage());
+            System.err.println("Error deleting lead via Facade: " + e.getMessage());
             return false;
         }
     }
@@ -106,7 +105,6 @@ public class LeadDAO {
         lead.setCompany((String) row.get("company"));
         lead.setStatus((String) row.get("status"));
         
-        // Handle timestamps safely from the map
         Object createdAtObj = row.get("created_at");
         if (createdAtObj instanceof Timestamp) {
             lead.setCreatedAt(((Timestamp) createdAtObj).toLocalDateTime());

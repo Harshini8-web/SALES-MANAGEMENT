@@ -3,14 +3,8 @@ package quotes.db;
 import quotes.model.Quote;
 import quotes.model.QuoteItem;
 import quotes.exception.QuoteException.*;
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
 
-import com.erp.sdk.config.DatabaseConfig;
-import com.erp.sdk.factory.SubsystemFactory;
-import com.erp.sdk.subsystem.SubsystemName;
-import com.erp.sdk.subsystem.AbstractSubsystem;
-import com.erp.sdk.exception.UnauthorizedResourceAccessException;
-
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,14 +13,18 @@ import java.util.Map;
 
 public class QuoteDAO {
 
-    private AbstractSubsystem facade;
+    private ErpDatabaseFacade facade;
 
     public QuoteDAO() {
+        initializeFacade();
+    }
+
+    private void initializeFacade() {
         try {
-            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
-        } catch (Exception e) {
-            System.err.println("Failed to initialize SDK in QuoteDAO");
+            this.facade = new ErpDatabaseFacade();
+        } catch (Throwable e) {
+            System.err.println("Failed to initialize ErpDatabaseFacade in QuoteDAO: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -34,19 +32,19 @@ public class QuoteDAO {
         try {
             Map<String, Object> data = new HashMap<>();
             data.put("customer_id", quote.getCustomerId());
-            // If dealId is -1 (unlinked), insert NULL instead of -1 to satisfy FK
-            // constraint
-            data.put("deal_id", quote.getDealId() == -1 ? null : quote.getDealId());
+            
+            // Only add deal_id if it exists, otherwise leave it out of the insert
+            if (quote.getDealId() != -1) {
+                data.put("deal_id", quote.getDealId());
+            }
+            
             data.put("total_amount", quote.getTotalAmount());
             data.put("discount", quote.getDiscount());
             data.put("final_amount", quote.getFinalAmount());
 
-            long generatedId = (long) facade.create("quotes", data, "integration_lead");
+            Object generatedId = facade.salesManagementSubsystem().create("quotes", data);
+            quote.setQuoteId(((Number) generatedId).intValue());
 
-            // Set the generated quote_id on the quote object
-            quote.setQuoteId((int) generatedId);
-
-            // Persist quote items if any
             if (quote.getItems() != null && !quote.getItems().isEmpty()) {
                 for (QuoteItem item : quote.getItems()) {
                     Map<String, Object> itemData = new HashMap<>();
@@ -54,22 +52,23 @@ public class QuoteDAO {
                     itemData.put("product_name", item.getProductName());
                     itemData.put("quantity", item.getQuantity());
                     itemData.put("price", item.getPrice());
-                    facade.create("quote_items", itemData, "integration_lead");
+                    facade.salesManagementSubsystem().create("quote_items", itemData);
                 }
             }
 
         } catch (Exception e) {
-            throw new QuoteGenerationFailed("Could not generate quote in the RDS database.");
+            // This will print the actual underlying DB permission error to your console
+            e.printStackTrace();
+            throw new QuoteGenerationFailed("DB Error: " + e.getMessage());
         }
     }
 
     public Quote getQuoteById(int quoteId) throws QuoteGenerationFailed {
         try {
-            Map<String, Object> rs = facade.readById("quotes", "quote_id", quoteId, "integration_lead");
+            Map<String, Object> rs = facade.salesManagementSubsystem().readById("quotes", "quote_id", quoteId);
 
             if (rs != null && !rs.isEmpty()) {
                 Quote quote = mapRowToQuote(rs);
-                // Fetch and populate quote items
                 List<QuoteItem> items = getQuoteItems(quoteId);
                 quote.setItems(items);
                 return quote;
@@ -86,7 +85,7 @@ public class QuoteDAO {
     public List<Quote> getAllQuotes() {
         List<Quote> results = new ArrayList<>();
         try {
-            List<Map<String, Object>> rows = facade.readAll("quotes", new HashMap<>(), "integration_lead");
+            List<Map<String, Object>> rows = facade.salesManagementSubsystem().readAll("quotes", new HashMap<>());
             if (rows != null) {
                 for (Map<String, Object> row : rows) {
                     results.add(mapRowToQuote(row));
@@ -105,7 +104,7 @@ public class QuoteDAO {
             data.put("discount", newDiscount);
             data.put("final_amount", newFinalAmount);
 
-            facade.update("quotes", "quote_id", quoteId, data, "integration_lead");
+            facade.salesManagementSubsystem().update("quotes", "quote_id", quoteId, data);
             return true;
         } catch (Exception e) {
             return false;
@@ -114,7 +113,7 @@ public class QuoteDAO {
 
     public boolean deleteQuote(int quoteId) {
         try {
-            facade.delete("quotes", "quote_id", quoteId, "integration_lead");
+            facade.salesManagementSubsystem().delete("quotes", "quote_id", quoteId);
             return true;
         } catch (Exception e) {
             return false;
@@ -123,13 +122,10 @@ public class QuoteDAO {
 
     public void deleteQuoteItem(int quoteItemId) {
         try {
-            facade.delete("quote_items", "quote_item_id", quoteItemId, "integration_lead");
+            facade.salesManagementSubsystem().delete("quote_items", "quote_item_id", quoteItemId);
             System.out.println("Quote item deleted successfully.");
-
-        } catch (UnauthorizedResourceAccessException e) {
-            System.err.println("SECURITY BLOCK: The Integration Team has disabled DELETE permissions for Quote Items.");
         } catch (Exception e) {
-            System.err.println("A database error occurred.");
+            System.err.println("A database error occurred or lack permissions: " + e.getMessage());
         }
     }
 
@@ -140,7 +136,7 @@ public class QuoteDAO {
             itemData.put("product_name", item.getProductName());
             itemData.put("quantity", item.getQuantity());
             itemData.put("price", item.getPrice());
-            facade.create("quote_items", itemData, "integration_lead");
+            facade.salesManagementSubsystem().create("quote_items", itemData);
             System.out.println("✔ Item added to Quote ID " + quoteId + ": " + item.getProductName());
         } catch (Exception e) {
             System.err.println("✘ Error adding item to quote: " + e.getMessage());
@@ -151,20 +147,12 @@ public class QuoteDAO {
     private List<QuoteItem> getQuoteItems(int quoteId) {
         List<QuoteItem> items = new ArrayList<>();
         try {
-            // Fetch all quote items and filter by quoteId in Java
-            List<Map<String, Object>> rows = facade.readAll("quote_items", new HashMap<>(), "integration_lead");
-            System.out.println("[DEBUG] getQuoteItems(" + quoteId + "): Total rows from DB = "
-                    + (rows != null ? rows.size() : "null"));
+            List<Map<String, Object>> rows = facade.salesManagementSubsystem().readAll("quote_items", new HashMap<>());
 
             if (rows != null && !rows.isEmpty()) {
                 for (Map<String, Object> row : rows) {
-                    // Debug: print each row
-                    System.out.println("[DEBUG] Row: " + row);
-
-                    // Filter by quote_id
                     if (row.get("quote_id") != null) {
                         int itemQuoteId = ((Number) row.get("quote_id")).intValue();
-                        System.out.println("[DEBUG] Item quote_id = " + itemQuoteId + ", looking for = " + quoteId);
 
                         if (itemQuoteId == quoteId) {
                             try {
@@ -174,27 +162,22 @@ public class QuoteDAO {
 
                                 QuoteItem item = new QuoteItem(quoteId, productName, quantity, price);
                                 items.add(item);
-                                System.out.println("[DEBUG] Added item: " + productName + ", qty=" + quantity
-                                        + ", price=" + price);
                             } catch (Exception e) {
                                 System.err.println("Error parsing quote item: " + e.getMessage());
-                                e.printStackTrace();
                             }
                         }
                     }
                 }
             }
-            System.out.println("[DEBUG] Final items count: " + items.size());
         } catch (Exception e) {
             System.err.println("Error fetching quote items: " + e.getMessage());
-            e.printStackTrace();
         }
         return items;
     }
 
     private Quote mapRowToQuote(Map<String, Object> rs) {
         Quote quote = new Quote();
-        quote.setItems(new ArrayList<>()); // Initialize empty items list to prevent null reference
+        quote.setItems(new ArrayList<>());
         if (rs.get("quote_id") instanceof Number) {
             quote.setQuoteId(((Number) rs.get("quote_id")).intValue());
         }
@@ -213,7 +196,6 @@ public class QuoteDAO {
         if (rs.get("final_amount") instanceof Number) {
             quote.setFinalAmount(((Number) rs.get("final_amount")).doubleValue());
         }
-        // Map created_at timestamp
         if (rs.get("created_at") != null) {
             if (rs.get("created_at") instanceof LocalDateTime) {
                 quote.setCreatedAt((LocalDateTime) rs.get("created_at"));
@@ -222,9 +204,7 @@ public class QuoteDAO {
             } else if (rs.get("created_at") instanceof String) {
                 try {
                     quote.setCreatedAt(LocalDateTime.parse((String) rs.get("created_at")));
-                } catch (Exception e) {
-                    // Parsing failed, leave as null
-                }
+                } catch (Exception e) { }
             }
         }
         return quote;

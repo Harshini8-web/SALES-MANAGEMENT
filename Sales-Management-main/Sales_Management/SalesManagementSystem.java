@@ -3,12 +3,8 @@ import quotes.ui.QuoteUI;
 import analytics.facade.AnalyticsCommandFactory;
 import java.util.Scanner;
 
-// --- 1. ADD THE SDK IMPORTS ---
-import com.erp.sdk.config.DatabaseConfig;
-import com.erp.sdk.factory.SubsystemFactory;
-import com.erp.sdk.subsystem.SubsystemName;
-
-import java.nio.file.Paths;
+// --- 1. ADD THE DATABASE FACADE IMPORT ---
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
 
 public class SalesManagementSystem {
     public static void main(String[] args) {
@@ -17,48 +13,23 @@ public class SalesManagementSystem {
         System.out.println("  ENTERPRISE SALES MANAGEMENT SYSTEM - STARTING  ");
         System.out.println("=================================================");
 
-        // --- 2. BOOTSTRAP THE INTEGRATION SDK WITH RETRY LOGIC ---
+        // --- 2. BOOTSTRAP THE DATABASE FACADE WITH RETRY LOGIC ---
         int maxRetries = 5;
-        int retryDelay = 10000; // Start with 10 seconds
+        int retryDelay = 2000; // Start with 2 seconds
         boolean connected = false;
+        ErpDatabaseFacade facade = null;
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                System.out.print("Connecting to live AWS RDS Database (Attempt " + attempt + "/" + maxRetries + ")... ");
+                System.out.print("Connecting to local MySQL Database (Attempt " + attempt + "/" + maxRetries + ")... ");
 
-                DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-
-                // 🔹 Create SINGLE SDK instance
-                com.erp.sdk.subsystem.SalesManagement salesSdk =
-                        (com.erp.sdk.subsystem.SalesManagement) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
-
-                // 🔹 BI Integration (your work)
-                shared.integration.SalesIntegrationService integrationService =
-                        new shared.integration.BISalesIntegrationServiceImpl(salesSdk);
-                shared.integration.IntegrationRegistry.setService(integrationService);
-
-                // 🔹 Order Gateway (their work)
-                com.designx.erp.gateway.SalesQuoteGateway orderGateway =
-                        new com.designx.erp.gateway.SdkSalesQuoteGateway(salesSdk, "system_test_user");
+                // Initialize the facade (it reads database.properties automatically)
+                facade = new ErpDatabaseFacade();
 
                 System.out.println("SUCCESS!");
                 connected = true;
 
-                System.out.println("Order Team Gateway initialized successfully. Running test fetch...");
-
-                int testQuoteId = 1;
-                com.designx.erp.gateway.QuoteDetails details = orderGateway.getQuoteDetails(testQuoteId);
-
-                if (details != null) {
-                    System.out.println("SUCCESS! Fetched Quote details via Order Gateway:");
-                    System.out.println("  -> Quote ID: " + details.getQuoteId());
-                    System.out.println("  -> Customer ID: " + details.getCustomerId());
-                    System.out.println("  -> Customer Name: " + details.getCustomerName());
-                    System.out.println("  -> Vehicle Model: " + details.getVehicleModel());
-                    System.out.println("  -> Final Amount: $" + details.getOrderValue());
-                } else {
-                    System.out.println("Test Complete: Gateway is connected, but Quote ID " + testQuoteId + " was not found.");
-                }
+                System.out.println("Database facade initialized successfully.");
 
                 break;
 
@@ -69,20 +40,20 @@ public class SalesManagementSystem {
                     System.out.println("Waiting " + (retryDelay / 1000) + " seconds before retry...");
                     try {
                         Thread.sleep(retryDelay);
-                        retryDelay += 5000;
+                        retryDelay += 2000;
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                     }
                 } else {
-                    System.err.println("\n[WARNING] Cannot connect to the live AWS database.");
-                    System.err.println("[WARNING] Starting Sales System in OFFLINE mode. BI Integration is disabled.");
+                    System.err.println("\n[WARNING] Cannot connect to the local MySQL database.");
+                    System.err.println("[WARNING] Starting Sales System in OFFLINE mode.");
                     break;
                 }
             }
         }
 
         if (!connected) {
-            System.err.println("Continuing without BI integration...");
+            System.err.println("Continuing without database integration...");
         }
 
         Scanner scanner = new Scanner(System.in);
@@ -128,6 +99,15 @@ public class SalesManagementSystem {
                     System.out.println("Invalid choice.");
             }
         }
+        
+        if (facade != null) {
+            try {
+                facade.close();
+            } catch (Exception e) {
+                System.err.println("Error closing database facade: " + e.getMessage());
+            }
+        }
+        
         scanner.close();
         System.exit(0);
     }
