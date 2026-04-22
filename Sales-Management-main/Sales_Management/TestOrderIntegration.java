@@ -1,29 +1,21 @@
-import com.erp.sdk.config.DatabaseConfig;
-import com.erp.sdk.factory.SubsystemFactory;
-import com.erp.sdk.subsystem.SubsystemName;
-import com.erp.sdk.subsystem.SalesManagement;
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
 import com.designx.erp.gateway.SdkSalesQuoteGateway;
 import com.designx.erp.gateway.QuoteDetails;
-import java.nio.file.Paths;
 
 public class TestOrderIntegration {
     public static void main(String[] args) {
         System.out.println("--- Starting Integration Test ---");
 
         try {
-            // 1. Initialize the SDK Database Connection
-            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
+            // 1. Initialize the new Facade Database Connection
+            ErpDatabaseFacade facade = new ErpDatabaseFacade();
 
-            // Use the correct initialization method for your SDK here
-            SalesManagement salesSubsystem = (SalesManagement) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT,
-                    dbConfig);
+            // 2. Initialize your updated Gateway (we removed the "test_user" argument
+            // previously)
+            SdkSalesQuoteGateway gateway = new SdkSalesQuoteGateway(facade);
 
-            // 2. Initialize your newly created Gateway
-            // Note: Replace "test_user" with whatever username string the SDK expects
-            SdkSalesQuoteGateway gateway = new SdkSalesQuoteGateway(salesSubsystem, "test_user");
-
-            // 3. Define a Quote ID that you KNOW exists in your database
-            int testQuoteId = 10; // Change this to a valid ID from your 'quotes' table
+            // 3. Define a Quote ID that you KNOW exists in your local testing database
+            int testQuoteId = 3; // Make sure this matches a Quote ID you recently created!
 
             System.out.println("Fetching details for Quote ID: " + testQuoteId + "...");
             QuoteDetails details = gateway.getQuoteDetails(testQuoteId);

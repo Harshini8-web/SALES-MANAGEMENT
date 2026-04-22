@@ -5,6 +5,10 @@
         "Sales-Management-main/Sales_Management/HikariCP-5.1.0.jar",
         "Sales-Management-main/Sales_Management/mysql-connector-j-9.6.0.jar",
         "Sales-Management-main/Sales_Management/slf4j-api-2.0.12.jar",
-        "Sales-Management-main/Sales_Management/slf4j-simple-2.0.12.jar"
+        "Sales-Management-main/Sales_Management/slf4j-simple-2.0.12.jar",
+        "Sales-Management-main/Sales_Management/local-database-module-1.0.0.jar",
+        "Sales-Management-main/Sales_Management/mysql-connector-j-9.3.0.jar",
+        "Sales-Management-main/Sales_Management/slf4j-api-2.0.17.jar",
+        "Sales-Management-main/Sales_Management/slf4j-simple-2.0.17.jar"
     ]
 }

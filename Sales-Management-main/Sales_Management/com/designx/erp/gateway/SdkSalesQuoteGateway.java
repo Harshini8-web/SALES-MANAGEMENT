@@ -1,50 +1,48 @@
 package com.designx.erp.gateway;
 
+import com.likeseca.erp.database.facade.ErpDatabaseFacade;
+import quotes.db.QuoteDAO;
+import quotes.model.Quote;
+import customers.db.CustomerDAO;
+import customers.model.Customer;
 import java.sql.SQLException;
-import java.util.List;
-import java.util.Map;
 
 public class SdkSalesQuoteGateway implements SalesQuoteGateway {
 
-    private static final String TABLE_QUOTES = "quotes";
-    private static final String TABLE_CUSTOMERS = "customers";
-    private static final String TABLE_QUOTE_ITEMS = "quote_items";
+    private final QuoteDAO quoteDAO;
+    private final CustomerDAO customerDAO;
 
-    private final String sdkUser;
-
-    public SdkSalesQuoteGateway(Object salesManagement, String sdkUser) {
-        // Placeholder for SDK integration
-        this.sdkUser = sdkUser;
+    public SdkSalesQuoteGateway(ErpDatabaseFacade facade) {
+        // We removed the unused 'facade' class variable.
+        // Initialize DAOs directly
+        this.quoteDAO = new QuoteDAO();
+        this.customerDAO = new CustomerDAO();
     }
 
     @Override
     public QuoteDetails getQuoteDetails(int quoteId) throws SQLException {
-        // Placeholder implementation - SDK not available
-        // TODO: Replace with ErpDatabaseFacade when SDK is properly integrated
-        return null;
-    }
+        try {
+            // 1. Use the correct method: getQuoteById
+            Quote quote = quoteDAO.getQuoteById(quoteId);
+            if (quote == null)
+                return null;
 
-    private int asInt(Object value) {
-        if (value == null) {
-            return 0;
-        }
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        return Integer.parseInt(String.valueOf(value));
-    }
+            int customerId = quote.getCustomerId();
 
-    private double asDouble(Object value) {
-        if (value == null) {
-            return 0.0;
-        }
-        if (value instanceof Number number) {
-            return number.doubleValue();
-        }
-        return Double.parseDouble(String.valueOf(value));
-    }
+            // 2. Fetch Customer using getCustomer
+            Customer customer = customerDAO.getCustomer(customerId);
 
-    private String asString(Object value) {
-        return value == null ? null : String.valueOf(value);
+            // 3. Map to QuoteDetails using the 5-argument constructor
+            // Passing "N/A" as a placeholder for the missing vehicleModel
+            return new QuoteDetails(
+                    quoteId,
+                    customerId,
+                    (customer != null) ? customer.getName() : "Unknown Customer",
+                    "N/A",
+                    quote.getFinalAmount());
+
+        } catch (Exception e) {
+            throw new SQLException("Failed to fetch integration details: " + e.getMessage(), e);
+        }
     }
 }
