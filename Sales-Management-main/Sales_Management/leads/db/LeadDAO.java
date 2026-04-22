@@ -16,15 +16,10 @@ public class LeadDAO {
     private ErpDatabaseFacade facade;
 
     public LeadDAO() {
-        initializeFacade();
-    }
-
-    private void initializeFacade() {
         try {
             this.facade = new ErpDatabaseFacade();
-        } catch (Throwable e) {
+        } catch (Exception e) {
             System.err.println("Failed to initialize ErpDatabaseFacade in LeadDAO: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 

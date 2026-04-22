@@ -17,13 +17,14 @@ public class BISalesIntegrationServiceImpl implements SalesIntegrationService {
     }
 
     @Override
-    public void publishSaleToBI(String carModel, int unitsSold, double revenue, String dealerId, String region, String saleQuarter) {
+    public void publishSaleToBI(String carModel, int unitsSold, double revenue, String dealerId, String region,
+            String saleQuarter) {
         try {
             Map<String, Object> record = new HashMap<>();
             record.put("car_model", carModel);
             record.put("units_sold", unitsSold);
             record.put("revenue", revenue);
-            record.put("sales_date", LocalDate.now().toString()); 
+            record.put("sales_date", LocalDate.now().toString());
             record.put("dealer_id", dealerId);
             record.put("created_at", LocalDateTime.now().toString());
 

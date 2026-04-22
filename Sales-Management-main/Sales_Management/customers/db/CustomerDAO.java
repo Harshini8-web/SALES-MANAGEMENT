@@ -18,15 +18,12 @@ public class CustomerDAO {
     private ErpDatabaseFacade facade;
 
     public CustomerDAO() {
-        initializeFacade();
-    }
-
-    private void initializeFacade() {
         try {
+            // 3. The new facade automatically reads database.properties from the project root,
+            // so we no longer need DatabaseConfig or Paths.get("application-rds-template.properties")
             this.facade = new ErpDatabaseFacade();
-        } catch (Throwable e) {
+        } catch (Exception e) {
             System.err.println("Failed to initialize ErpDatabaseFacade in CustomerDAO: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
