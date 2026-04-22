@@ -26,6 +26,14 @@ public class SalesManagementSystem {
                 // Initialize the facade (it reads database.properties automatically)
                 facade = new ErpDatabaseFacade();
 
+                // =======================================================
+                // --- BI INTEGRATION: REGISTER THE ADAPTER GLOBALLY ---
+                // =======================================================
+                shared.integration.SalesIntegrationService integrationService = 
+                    new shared.integration.BISalesIntegrationServiceImpl(facade);
+                shared.integration.IntegrationRegistry.setService(integrationService);
+                // =======================================================
+
                 System.out.println("SUCCESS!");
                 connected = true;
 

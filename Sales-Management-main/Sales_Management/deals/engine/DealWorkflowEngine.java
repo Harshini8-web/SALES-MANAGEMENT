@@ -85,7 +85,7 @@ public class DealWorkflowEngine {
             );
         }
 
-        logger.info("DealWorkflowEngine: stage transition '" + currentStage + "' → '" + newStage + "' approved.");
+        logger.info("DealWorkflowEngine: stage transition '" + currentStage + "' to '" + newStage + "' approved.");
     }
 
     /**
