@@ -1,4 +1,3 @@
-
 import customers.ui.CustomerUI;
 import quotes.ui.QuoteUI;
 import analytics.facade.AnalyticsCommandFactory;
@@ -9,14 +8,11 @@ import com.erp.sdk.config.DatabaseConfig;
 import com.erp.sdk.factory.SubsystemFactory;
 import com.erp.sdk.subsystem.SubsystemName;
 
-import java.nio.file.Paths; // This is required to convert the String to a Path
-// Note: Your IDE might suggest auto-importing SubsystemName from com.erp.sdk.factory or com.erp.sdk.subsystem. 
-// Accept whichever one is inside their JAR!
-
+import java.nio.file.Paths;
 
 public class SalesManagementSystem {
     public static void main(String[] args) {
-        
+
         System.out.println("=================================================");
         System.out.println("  ENTERPRISE SALES MANAGEMENT SYSTEM - STARTING  ");
         System.out.println("=================================================");
@@ -25,44 +21,66 @@ public class SalesManagementSystem {
         int maxRetries = 5;
         int retryDelay = 10000; // Start with 10 seconds
         boolean connected = false;
-        
+
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 System.out.print("Connecting to live AWS RDS Database (Attempt " + attempt + "/" + maxRetries + ")... ");
-                
+
                 DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-                
-                // 1. Capture the SDK instance (cast it to the SalesManagement class from the SDK)
-                com.erp.sdk.subsystem.SalesManagement erpSalesSubsystem = 
-                    (com.erp.sdk.subsystem.SalesManagement) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
-                
-                // 2. Wrap it in our Adapter and register it globally
-                shared.integration.SalesIntegrationService integrationService = 
-                    new shared.integration.BISalesIntegrationServiceImpl(erpSalesSubsystem);
+
+                // 🔹 Create SINGLE SDK instance
+                com.erp.sdk.subsystem.SalesManagement salesSdk =
+                        (com.erp.sdk.subsystem.SalesManagement) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+
+                // 🔹 BI Integration (your work)
+                shared.integration.SalesIntegrationService integrationService =
+                        new shared.integration.BISalesIntegrationServiceImpl(salesSdk);
                 shared.integration.IntegrationRegistry.setService(integrationService);
+
+                // 🔹 Order Gateway (their work)
+                com.designx.erp.gateway.SalesQuoteGateway orderGateway =
+                        new com.designx.erp.gateway.SdkSalesQuoteGateway(salesSdk, "system_test_user");
 
                 System.out.println("SUCCESS!");
                 connected = true;
+
+                System.out.println("Order Team Gateway initialized successfully. Running test fetch...");
+
+                int testQuoteId = 1;
+                com.designx.erp.gateway.QuoteDetails details = orderGateway.getQuoteDetails(testQuoteId);
+
+                if (details != null) {
+                    System.out.println("SUCCESS! Fetched Quote details via Order Gateway:");
+                    System.out.println("  -> Quote ID: " + details.getQuoteId());
+                    System.out.println("  -> Customer ID: " + details.getCustomerId());
+                    System.out.println("  -> Customer Name: " + details.getCustomerName());
+                    System.out.println("  -> Vehicle Model: " + details.getVehicleModel());
+                    System.out.println("  -> Final Amount: $" + details.getOrderValue());
+                } else {
+                    System.out.println("Test Complete: Gateway is connected, but Quote ID " + testQuoteId + " was not found.");
+                }
+
                 break;
+
             } catch (Exception e) {
-                if (attempt < maxRetries && e.getCause() != null && e.getCause().getMessage().contains("Too many connections")) {
-                    System.out.println("FAILED (Too many connections)");
+                if (attempt < maxRetries) {
+                    String reason = (e.getCause() != null) ? e.getCause().getMessage() : e.getMessage();
+                    System.out.println("FAILED (" + reason + ")");
                     System.out.println("Waiting " + (retryDelay / 1000) + " seconds before retry...");
                     try {
                         Thread.sleep(retryDelay);
-                        retryDelay += 5000; // Increase delay by 5 seconds each time
+                        retryDelay += 5000;
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                     }
                 } else {
-                    System.err.println("\n[WARNING] Cannot connect to the live AWS database (Host Unknown/Offline).");
+                    System.err.println("\n[WARNING] Cannot connect to the live AWS database.");
                     System.err.println("[WARNING] Starting Sales System in OFFLINE mode. BI Integration is disabled.");
-                    // DO NOT call System.exit(1) here!
-                    break; // Exit the retry loop and start the app anyway
+                    break;
                 }
             }
         }
-        
+
         if (!connected) {
             System.err.println("Continuing without BI integration...");
         }

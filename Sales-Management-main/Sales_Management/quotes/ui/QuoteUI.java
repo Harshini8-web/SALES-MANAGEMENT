@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
-@SuppressWarnings("resource")
 public class QuoteUI {
     // Added for integration with SalesManagementSystem
     public void displayMenu() {

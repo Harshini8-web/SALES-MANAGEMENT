@@ -5,7 +5,6 @@ import customers.command.CustomerCommand;
 import customers.command.AddCustomerCommand;
 import java.util.Scanner;
 
-@SuppressWarnings("resource")
 public class CustomerUI {
     // Added for integration with SalesManagementSystem
     public void displayMenu() {
@@ -29,9 +28,9 @@ public class CustomerUI {
             System.out.println("3. View Customer by ID");
             System.out.println("4. Exit");
             System.out.print("Enter your choice (1-4): ");
-            
+
             String choice = scanner.nextLine().trim();
-            
+
             switch (choice) {
                 case "1":
                     addNewCustomer(customerFacade, scanner);
@@ -78,7 +77,7 @@ public class CustomerUI {
     private static void viewAllCustomers(CustomerFacade customerFacade) {
         System.out.println("\n--- ALL CUSTOMERS ---");
         java.util.List<customers.model.Customer> customers = customerFacade.getAllCustomers();
-        
+
         if (customers == null || customers.isEmpty()) {
             System.out.println("No customers found.");
             return;
@@ -86,7 +85,7 @@ public class CustomerUI {
 
         System.out.println("\nTotal Customers: " + customers.size());
         System.out.println("========================================================");
-        
+
         for (customers.model.Customer customer : customers) {
             System.out.println("ID: " + customer.getCustomerId());
             System.out.println("Name: " + customer.getName());
@@ -101,11 +100,11 @@ public class CustomerUI {
     private static void viewCustomerById(CustomerFacade customerFacade, Scanner scanner) {
         System.out.print("\nEnter Customer ID: ");
         String idInput = scanner.nextLine().trim();
-        
+
         try {
             int customerId = Integer.parseInt(idInput);
             customers.model.Customer customer = customerFacade.getCustomerById(customerId);
-            
+
             System.out.println("\n--- CUSTOMER DETAILS ---");
             System.out.println("ID: " + customer.getCustomerId());
             System.out.println("Name: " + customer.getName());
