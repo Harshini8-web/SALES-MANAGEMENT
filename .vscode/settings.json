@@ -1,0 +1,10 @@
+{
+    "java.project.referencedLibraries": [
+        "lib/**/*.jar",
+        "Sales-Management-main/Sales_Management/erp-subsystem-sdk-1.0.0.jar",
+        "Sales-Management-main/Sales_Management/HikariCP-5.1.0.jar",
+        "Sales-Management-main/Sales_Management/mysql-connector-j-9.6.0.jar",
+        "Sales-Management-main/Sales_Management/slf4j-api-2.0.12.jar",
+        "Sales-Management-main/Sales_Management/slf4j-simple-2.0.12.jar"
+    ]
+}

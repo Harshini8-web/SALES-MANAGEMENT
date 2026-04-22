@@ -1,4 +1,3 @@
-
 import customers.ui.CustomerUI;
 import quotes.ui.QuoteUI;
 import analytics.facade.AnalyticsCommandFactory;
@@ -9,14 +8,11 @@ import com.erp.sdk.config.DatabaseConfig;
 import com.erp.sdk.factory.SubsystemFactory;
 import com.erp.sdk.subsystem.SubsystemName;
 
-import java.nio.file.Paths; // This is required to convert the String to a Path
-// Note: Your IDE might suggest auto-importing SubsystemName from com.erp.sdk.factory or com.erp.sdk.subsystem. 
-// Accept whichever one is inside their JAR!
-
+import java.nio.file.Paths;
 
 public class SalesManagementSystem {
     public static void main(String[] args) {
-        
+
         System.out.println("=================================================");
         System.out.println("  ENTERPRISE SALES MANAGEMENT SYSTEM - STARTING  ");
         System.out.println("=================================================");
@@ -25,24 +21,51 @@ public class SalesManagementSystem {
         int maxRetries = 5;
         int retryDelay = 10000; // Start with 10 seconds
         boolean connected = false;
-        
+
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                System.out.print("Connecting to live AWS RDS Database (Attempt " + attempt + "/" + maxRetries + ")... ");
-                
-                // FIX 1: Use Paths.get() to pass a Path object instead of a String
-                DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
-                
-                // FIX 2: Pass the SubsystemName Enum and the initialized dbConfig object
-                // (If SubsystemName.SalesManagement gives a capitalization error, try SubsystemName.SALES_MANAGEMENT)
-                SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
-                
+                System.out
+                        .print("Connecting to live AWS RDS Database (Attempt " + attempt + "/" + maxRetries + ")... ");
+
+                DatabaseConfig dbConfig = DatabaseConfig
+                        .fromProperties(Paths.get("application-rds-template.properties"));
+                // Create AND grab the instance at the same time
+                com.erp.sdk.subsystem.SalesManagement salesSdk = (com.erp.sdk.subsystem.SalesManagement) SubsystemFactory
+                        .create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+
                 System.out.println("SUCCESS!");
                 connected = true;
+
+                // Initialize their gateway
+                com.designx.erp.gateway.SalesQuoteGateway orderGateway = new com.designx.erp.gateway.SdkSalesQuoteGateway(
+                        salesSdk, "system_test_user");
+
+                System.out.println("Order Team Gateway initialized successfully. Running test fetch...");
+
+                // --- NEW FETCH TEST ---
+                int testQuoteId = 1;
+                com.designx.erp.gateway.QuoteDetails details = orderGateway.getQuoteDetails(testQuoteId);
+
+                if (details != null) {
+                    System.out.println("SUCCESS! Fetched Quote details via Order Gateway:");
+                    System.out.println("  -> Quote ID: " + details.getQuoteId());
+                    System.out.println("  -> Customer ID: " + details.getCustomerId());
+                    System.out.println("  -> Customer Name: " + details.getCustomerName());
+                    System.out.println("  -> Vehicle Model: " + details.getVehicleModel());
+                    System.out.println("  -> Final Amount: $" + details.getOrderValue());
+                } else {
+                    System.out.println("Test Complete: Gateway is connected, but Quote ID " + testQuoteId
+                            + " was not found in the database.");
+                }
+
+                // Break out of the retry loop after everything succeeds
                 break;
+
             } catch (Exception e) {
-                if (attempt < maxRetries && e.getCause() != null && e.getCause().getMessage().contains("Too many connections")) {
-                    System.out.println("FAILED (Too many connections)");
+                if (attempt < maxRetries) {
+                    // Extract the core reason to print
+                    String reason = (e.getCause() != null) ? e.getCause().getMessage() : e.getMessage();
+                    System.out.println("FAILED (" + reason + ")");
                     System.out.println("Waiting " + (retryDelay / 1000) + " seconds before retry...");
                     try {
                         Thread.sleep(retryDelay);
@@ -53,11 +76,10 @@ public class SalesManagementSystem {
                 } else {
                     System.err.println("FAILED! Cannot connect to the integration database.");
                     e.printStackTrace();
-                    System.exit(1); // Stop the app if we can't hit the database
                 }
             }
         }
-        
+
         if (!connected) {
             System.err.println("FAILED! Could not connect to database after " + maxRetries + " attempts.");
             System.exit(1);
