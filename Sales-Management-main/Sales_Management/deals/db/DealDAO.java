@@ -2,45 +2,29 @@ package deals.db;
 
 import deals.exception.DealException.*;
 import deals.model.Deal;
+import com.erp.sdk.config.DatabaseConfig;
+import com.erp.sdk.factory.SubsystemFactory;
+import com.erp.sdk.subsystem.SubsystemName;
+import com.erp.sdk.subsystem.AbstractSubsystem;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Properties;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class DealDAO {
 
-    private Connection connection;
+    private AbstractSubsystem facade;
+    private static final String USER = "sales_lead"; // The ERP user for this subsystem
 
     public DealDAO() {
-        // Don't connect yet - wait until first use
-    }
-
-    private void ensureConnection() throws SQLException {
-        if (connection == null || connection.isClosed()) {
-            try {
-                Properties props = new Properties();
-                props.load(Files.newInputStream(Paths.get("application-rds-template.properties")));
-
-                String host = props.getProperty("db.host");
-                String port = props.getProperty("db.port");
-                String dbName = props.getProperty("db.name");
-                String username = props.getProperty("db.username");
-                String password = props.getProperty("db.password");
-
-                String url = "jdbc:mysql://" + host + ":" + port + "/" + dbName;
-                this.connection = DriverManager.getConnection(url, username, password);
-            } catch (Exception e) {
-                throw new SQLException("Failed to initialize database connection", e);
-            }
+        try {
+            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
+            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+        } catch (Exception e) {
+            System.err.println("Failed to initialize SDK in DealDAO");
         }
     }
 
@@ -49,41 +33,27 @@ public class DealDAO {
     }
 
     public void createDeal(Deal deal) throws DealCreationFailed {
-        String sql = "INSERT INTO deals (customer_id, amount, stage, status) VALUES (?, ?, ?, ?)";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-                stmt.setInt(1, deal.getCustomerId());
-                stmt.setDouble(2, deal.getAmount());
-                stmt.setString(3, deal.getStage());
-                stmt.setString(4, deal.getStatus());
-                stmt.executeUpdate();
-                
-                // Get the auto-generated deal_id
-                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
-                    if (generatedKeys.next()) {
-                        deal.setDealId(generatedKeys.getInt(1));
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new DealCreationFailed("Failed to save deal to database: " + e.getMessage());
+            Map<String, Object> data = new HashMap<>();
+            data.put("customer_id", deal.getCustomerId());
+            data.put("amount", deal.getAmount());
+            data.put("stage", deal.getStage());
+            data.put("status", deal.getStatus());
+
+            long newId = facade.create("deals", data, USER);
+            deal.setDealId((int) newId);
+        } catch (Exception e) {
+            throw new DealCreationFailed("Failed to save deal to database via SDK: " + e.getMessage());
         }
     }
 
     public Deal getDeal(int dealId) throws DealNotFound {
-        String sql = "SELECT deal_id, customer_id, amount, stage, status, created_at FROM deals WHERE deal_id = ?";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setInt(1, dealId);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        return mapRowToDeal(rs);
-                    }
-                }
+            Map<String, Object> rs = facade.readById("deals", "deal_id", dealId, USER);
+            if (rs != null && !rs.isEmpty()) {
+                return mapRowToDeal(rs);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         throw new DealNotFound("Deal ID " + dealId + " not found.");
@@ -95,68 +65,68 @@ public class DealDAO {
 
     public List<Deal> getAllDeals() {
         List<Deal> results = new ArrayList<>();
-        String sql = "SELECT deal_id, customer_id, amount, stage, status, created_at FROM deals";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql);
-                 ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    results.add(mapRowToDeal(rs));
+            List<Map<String, Object>> rows = facade.readAll("deals", new HashMap<>(), USER);
+            if (rows != null) {
+                for (Map<String, Object> row : rows) {
+                    results.add(mapRowToDeal(row));
                 }
             }
-        } catch (SQLException e) {
-            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("Error retrieving deals via SDK: " + e.getMessage());
         }
         return results;
     }
 
     public List<Deal> getDealsByCustomer(int customerId) {
         return getAllDeals().stream()
-                .filter(deal -> deal.getCustomerId() == customerId)
-                .collect(Collectors.toList());
+            .filter(deal -> deal.getCustomerId() == customerId)
+            .collect(Collectors.toList());
     }
 
     public List<Deal> getDealsByStage(String stage) {
         return getAllDeals().stream()
-                .filter(deal -> stage.equals(deal.getStage()))
-                .collect(Collectors.toList());
+            .filter(deal -> stage.equals(deal.getStage()))
+            .collect(Collectors.toList());
     }
 
     public boolean updateDealStage(int dealId, String newStage, String newStatus) {
-        String sql = "UPDATE deals SET stage = ?, status = ? WHERE deal_id = ?";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, newStage);
-                stmt.setString(2, newStatus);
-                stmt.setInt(3, dealId);
-                return stmt.executeUpdate() > 0;
-            }
-        } catch (SQLException e) {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("stage", newStage);
+            payload.put("status", newStatus);
+            
+            facade.update("deals", "deal_id", dealId, payload, USER);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Error updating deal stage: " + e.getMessage());
             return false;
         }
     }
 
     public boolean deleteDeal(int dealId) {
-        String sql = "DELETE FROM deals WHERE deal_id = ?";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setInt(1, dealId);
-                return stmt.executeUpdate() > 0;
-            }
-        } catch (SQLException e) {
+            facade.delete("deals", "deal_id", dealId, USER);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Error deleting deal: " + e.getMessage());
             return false;
         }
     }
 
-    private Deal mapRowToDeal(ResultSet rs) throws SQLException {
+    private Deal mapRowToDeal(Map<String, Object> row) {
         Deal deal = new Deal();
-        deal.setDealId(rs.getInt("deal_id"));
-        deal.setCustomerId(rs.getInt("customer_id"));
-        deal.setAmount(rs.getDouble("amount"));
-        deal.setStage(rs.getString("stage"));
-        deal.setStatus(rs.getString("status"));
+        deal.setDealId(((Number) row.get("deal_id")).intValue());
+        deal.setCustomerId(((Number) row.get("customer_id")).intValue());
+        
+        // Handle potential different numeric types coming from the database Map
+        Object amountObj = row.get("amount");
+        if (amountObj instanceof Number) {
+            deal.setAmount(((Number) amountObj).doubleValue());
+        }
+        
+        deal.setStage((String) row.get("stage"));
+        deal.setStatus((String) row.get("status"));
         return deal;
     }
 }

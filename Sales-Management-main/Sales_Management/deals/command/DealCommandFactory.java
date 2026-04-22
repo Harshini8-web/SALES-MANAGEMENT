@@ -4,6 +4,8 @@ import deals.db.DealDAO;
 import deals.engine.DealWorkflowEngine;
 import deals.exception.DealException;
 import deals.model.Deal;
+import shared.integration.IntegrationRegistry;
+import shared.integration.SalesIntegrationService;
 
 import java.util.List;
 import java.util.logging.Logger;
@@ -239,6 +241,52 @@ class AdvanceDealStageCommand implements DealCommand {
             if (updated) {
                 System.out.printf(" Deal %d advanced: '%s' -> '%s' (Status: %s)%n",
                     dealId, existing.getStage(), newStage, newStatus);
+
+                // ====================================================================
+                // --- BI INTEGRATION HOOK: TRIGGER ONLY ON CLOSED_WON ---
+                // ====================================================================
+// ====================================================================
+                // --- BI INTEGRATION HOOK: TRIGGER ONLY ON CLOSED_WON ---
+                // ====================================================================
+                if (newStage.equals(Deal.STAGE_CLOSED_WON)) {
+                    try {
+                        SalesIntegrationService biService = IntegrationRegistry.getService();
+                        
+                        if (biService != null) {
+                            // Fetch the customer to get the Region
+                            customers.db.CustomerDAO customerDAO = new customers.db.CustomerDAO();
+                            
+                            // FIX 1: Use getCustomer() instead of getCustomerById()
+                            customers.model.Customer customer = customerDAO.getCustomer(existing.getCustomerId());
+
+                            // FIX 2: Since your Customer.java does not track car models, 
+                            // we safely default it to "Unknown Model"
+                            String carModel = "Unknown Model"; 
+                            
+                            String region = (customer != null && customer.getRegion() != null) 
+                                                ? customer.getRegion() : "Unassigned Region";
+
+                            // Dynamically calculate the current quarter (e.g., "Q2-2026")
+                            int month = java.time.LocalDate.now().getMonthValue();
+                            int year = java.time.LocalDate.now().getYear();
+                            String currentQuarter = "Q" + ((month - 1) / 3 + 1) + "-" + year;
+
+                            biService.publishSaleToBI(
+                                carModel,             // Defaulted (not in Customer model)
+                                1,                    // Defaulted (unless you query quote_items)
+                                existing.getAmount(), // From Deals table
+                                "DLR001",             // Defaulted (not in schema)
+                                region,               // From Customers table
+                                currentQuarter        // Dynamically generated
+                            );
+                        }
+                    } catch (Exception e) {
+                        logger.warning("BI Integration hook failed, but deal was saved. Error: " + e.getMessage());
+                    }
+                }
+                // ====================================================================
+                // ====================================================================
+
             } else {
                 System.out.println(" No update made. Deal ID not found: " + dealId);
             }
@@ -321,11 +369,11 @@ class DeleteDealCommand implements DealCommand {
  * DealCommandFactory
  *
  * Example usage:
- *   DealDAO dao = new DealDAO();
- *   DealWorkflowEngine engine = new DealWorkflowEngine();
+ * DealDAO dao = new DealDAO();
+ * DealWorkflowEngine engine = new DealWorkflowEngine();
  *
- *   DealCommandFactory.createDeal(1, 50000.0, dao, engine).execute();
- *   DealCommandFactory.advanceStage(2, "PROPOSAL", dao, engine).execute();
+ * DealCommandFactory.createDeal(1, 50000.0, dao, engine).execute();
+ * DealCommandFactory.advanceStage(2, "PROPOSAL", dao, engine).execute();
  */
 public class DealCommandFactory {
 

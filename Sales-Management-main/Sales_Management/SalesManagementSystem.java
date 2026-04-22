@@ -30,13 +30,17 @@ public class SalesManagementSystem {
             try {
                 System.out.print("Connecting to live AWS RDS Database (Attempt " + attempt + "/" + maxRetries + ")... ");
                 
-                // FIX 1: Use Paths.get() to pass a Path object instead of a String
                 DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
                 
-                // FIX 2: Pass the SubsystemName Enum and the initialized dbConfig object
-                // (If SubsystemName.SalesManagement gives a capitalization error, try SubsystemName.SALES_MANAGEMENT)
-                SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+                // 1. Capture the SDK instance (cast it to the SalesManagement class from the SDK)
+                com.erp.sdk.subsystem.SalesManagement erpSalesSubsystem = 
+                    (com.erp.sdk.subsystem.SalesManagement) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
                 
+                // 2. Wrap it in our Adapter and register it globally
+                shared.integration.SalesIntegrationService integrationService = 
+                    new shared.integration.BISalesIntegrationServiceImpl(erpSalesSubsystem);
+                shared.integration.IntegrationRegistry.setService(integrationService);
+
                 System.out.println("SUCCESS!");
                 connected = true;
                 break;
@@ -51,16 +55,16 @@ public class SalesManagementSystem {
                         Thread.currentThread().interrupt();
                     }
                 } else {
-                    System.err.println("FAILED! Cannot connect to the integration database.");
-                    e.printStackTrace();
-                    System.exit(1); // Stop the app if we can't hit the database
+                    System.err.println("\n[WARNING] Cannot connect to the live AWS database (Host Unknown/Offline).");
+                    System.err.println("[WARNING] Starting Sales System in OFFLINE mode. BI Integration is disabled.");
+                    // DO NOT call System.exit(1) here!
+                    break; // Exit the retry loop and start the app anyway
                 }
             }
         }
         
         if (!connected) {
-            System.err.println("FAILED! Could not connect to database after " + maxRetries + " attempts.");
-            System.exit(1);
+            System.err.println("Continuing without BI integration...");
         }
 
         Scanner scanner = new Scanner(System.in);

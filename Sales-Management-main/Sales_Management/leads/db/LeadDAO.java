@@ -2,174 +2,116 @@ package leads.db;
 
 import leads.exception.LeadException;
 import leads.model.Lead;
+import com.erp.sdk.config.DatabaseConfig;
+import com.erp.sdk.factory.SubsystemFactory;
+import com.erp.sdk.subsystem.SubsystemName;
+import com.erp.sdk.subsystem.AbstractSubsystem;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Properties;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public class LeadDAO {
 
-    private Connection connection;
+    private AbstractSubsystem facade;
+    private static final String USER = "sales_lead";
 
     public LeadDAO() {
-        // Don't connect yet - wait until first use
-    }
-
-    private void ensureConnection() throws SQLException {
-        if (connection == null || connection.isClosed()) {
-            try {
-                Properties props = new Properties();
-                props.load(Files.newInputStream(Paths.get("application-rds-template.properties")));
-
-                String host = props.getProperty("db.host");
-                String port = props.getProperty("db.port");
-                String dbName = props.getProperty("db.name");
-                String username = props.getProperty("db.username");
-                String password = props.getProperty("db.password");
-
-                String url = "jdbc:mysql://" + host + ":" + port + "/" + dbName;
-                this.connection = DriverManager.getConnection(url, username, password);
-
-                // Create table if not exists
-                createTableIfNotExists();
-            } catch (Exception e) {
-                throw new SQLException("Failed to initialize database connection", e);
-            }
-        }
-    }
-
-    private void createTableIfNotExists() throws SQLException {
-        String createTableSQL = "CREATE TABLE IF NOT EXISTS leads (" +
-            "lead_id INT PRIMARY KEY AUTO_INCREMENT, " +
-            "name VARCHAR(100) NOT NULL, " +
-            "company VARCHAR(100), " +
-            "status VARCHAR(50), " +
-            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
-            ")";
-        try (PreparedStatement stmt = connection.prepareStatement(createTableSQL)) {
-            stmt.executeUpdate();
-        }
-        // Ensure columns exist
-        String[] alterSQLs = {
-            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS company VARCHAR(100)",
-            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS status VARCHAR(50)",
-            "ALTER TABLE leads ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-        };
-        for (String sql : alterSQLs) {
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.executeUpdate();
-            } catch (SQLException e) {
-                // Column might already exist or other issue, ignore
-            }
+        try {
+            DatabaseConfig dbConfig = DatabaseConfig.fromProperties(Paths.get("application-rds-template.properties"));
+            this.facade = (AbstractSubsystem) SubsystemFactory.create(SubsystemName.SALES_MANAGEMENT, dbConfig);
+        } catch (Exception e) {
+            System.err.println("Failed to initialize SDK in LeadDAO");
         }
     }
 
     public void createLead(Lead lead) {
-        String sql = "INSERT INTO leads (name, company, status) VALUES (?, ?, ?)";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-                stmt.setString(1, lead.getName());
-                stmt.setString(2, lead.getCompany());
-                stmt.setString(3, lead.getStatus());
-                stmt.executeUpdate();
-                
-                // Get the auto-generated lead_id
-                try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
-                    if (generatedKeys.next()) {
-                        lead.setLeadId(generatedKeys.getInt(1));
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            throw new LeadException.LeadCreationFailed("Database error: " + e.getMessage(), e);
+            Map<String, Object> data = new HashMap<>();
+            data.put("name", lead.getName());
+            data.put("company", lead.getCompany());
+            data.put("status", lead.getStatus());
+
+            long newId = facade.create("leads", data, USER);
+            lead.setLeadId((int) newId);
+        } catch (Exception e) {
+            throw new LeadException.LeadCreationFailed("Database SDK error: " + e.getMessage(), e);
         }
     }
 
     public Lead getLeadById(int leadId) {
-        String sql = "SELECT lead_id, name, company, status, created_at FROM leads WHERE lead_id = ?";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setInt(1, leadId);
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        return mapRowToLead(rs);
-                    }
-                }
+            Map<String, Object> rs = facade.readById("leads", "lead_id", leadId, USER);
+            if (rs != null && !rs.isEmpty()) {
+                return mapRowToLead(rs);
             }
-        } catch (SQLException e) {
-            throw new LeadException.LeadCreationFailed("DB error retrieving lead", e);
+        } catch (Exception e) {
+            throw new LeadException.LeadCreationFailed("DB SDK error retrieving lead", e);
         }
         throw new LeadException.LeadNotFound(leadId);
     }
 
     public List<Lead> getAllLeads() {
         List<Lead> results = new ArrayList<>();
-        String sql = "SELECT lead_id, name, company, status, created_at FROM leads";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql);
-                 ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    results.add(mapRowToLead(rs));
+            List<Map<String, Object>> rows = facade.readAll("leads", new HashMap<>(), USER);
+            if (rows != null) {
+                for (Map<String, Object> row : rows) {
+                    results.add(mapRowToLead(row));
                 }
             }
-        } catch (SQLException e) {
-            throw new LeadException.LeadCreationFailed("DB error retrieving all leads", e);
+        } catch (Exception e) {
+            throw new LeadException.LeadCreationFailed("DB SDK error retrieving all leads", e);
         }
         return results;
     }
 
     public List<Lead> getLeadsByStatus(String status) {
         return getAllLeads().stream()
-                .filter(lead -> status.equals(lead.getStatus()))
-                .collect(Collectors.toList());
+            .filter(lead -> status.equals(lead.getStatus()))
+            .collect(Collectors.toList());
     }
 
     public boolean updateLeadStatus(int leadId, String newStatus) {
-        String sql = "UPDATE leads SET status = ? WHERE lead_id = ?";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, newStatus);
-                stmt.setInt(2, leadId);
-                return stmt.executeUpdate() > 0;
-            }
-        } catch (SQLException e) {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("status", newStatus);
+            
+            facade.update("leads", "lead_id", leadId, payload, USER);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Error updating lead status via SDK: " + e.getMessage());
             return false;
         }
     }
 
     public boolean deleteLead(int leadId) {
-        String sql = "DELETE FROM leads WHERE lead_id = ?";
         try {
-            ensureConnection();
-            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-                stmt.setInt(1, leadId);
-                return stmt.executeUpdate() > 0;
-            }
-        } catch (SQLException e) {
+            facade.delete("leads", "lead_id", leadId, USER);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Error deleting lead via SDK: " + e.getMessage());
             return false;
         }
     }
 
-    private Lead mapRowToLead(ResultSet rs) throws SQLException {
+    private Lead mapRowToLead(Map<String, Object> row) {
         Lead lead = new Lead();
-        lead.setLeadId(rs.getInt("lead_id"));
-        lead.setName(rs.getString("name"));
-        lead.setCompany(rs.getString("company"));
-        lead.setStatus(rs.getString("status"));
-        lead.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+        lead.setLeadId(((Number) row.get("lead_id")).intValue());
+        lead.setName((String) row.get("name"));
+        lead.setCompany((String) row.get("company"));
+        lead.setStatus((String) row.get("status"));
+        
+        // Handle timestamps safely from the map
+        Object createdAtObj = row.get("created_at");
+        if (createdAtObj instanceof Timestamp) {
+            lead.setCreatedAt(((Timestamp) createdAtObj).toLocalDateTime());
+        }
+        
         return lead;
     }
 }
