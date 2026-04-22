@@ -4,6 +4,7 @@ import quotes.model.Quote;
 import quotes.model.QuoteItem;
 import quotes.exception.QuoteException.*;
 import com.likeseca.erp.database.facade.ErpDatabaseFacade;
+import quotes.engine.PricingEngine;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -16,15 +17,10 @@ public class QuoteDAO {
     private ErpDatabaseFacade facade;
 
     public QuoteDAO() {
-        initializeFacade();
-    }
-
-    private void initializeFacade() {
         try {
             this.facade = new ErpDatabaseFacade();
-        } catch (Throwable e) {
+        } catch (Exception e) {
             System.err.println("Failed to initialize ErpDatabaseFacade in QuoteDAO: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
@@ -131,6 +127,7 @@ public class QuoteDAO {
 
     public void addItemToQuote(int quoteId, QuoteItem item) {
         try {
+            // 1. Save the new line item to the database
             Map<String, Object> itemData = new HashMap<>();
             itemData.put("quote_id", quoteId);
             itemData.put("product_name", item.getProductName());
@@ -138,6 +135,21 @@ public class QuoteDAO {
             itemData.put("price", item.getPrice());
             facade.salesManagementSubsystem().create("quote_items", itemData);
             System.out.println("✔ Item added to Quote ID " + quoteId + ": " + item.getProductName());
+
+            // 2. Fetch the updated quote (which will now pull all items, including the new one)
+            Quote updatedQuote = getQuoteById(quoteId);
+
+            // 3. Recalculate the totals using your existing PricingEngine
+            PricingEngine engine = new PricingEngine();
+            double[] newTotals = engine.computeFinalPrice(updatedQuote.getItems(), updatedQuote.getDiscount());
+
+            // 4. Update the parent quote record with the new accurate totals
+            Map<String, Object> quoteUpdate = new HashMap<>();
+            quoteUpdate.put("total_amount", newTotals[0]); // The new raw total
+            quoteUpdate.put("final_amount", newTotals[1]); // The new discounted grand total
+            
+            facade.salesManagementSubsystem().update("quotes", "quote_id", quoteId, quoteUpdate);
+            
         } catch (Exception e) {
             System.err.println("✘ Error adding item to quote: " + e.getMessage());
             e.printStackTrace();

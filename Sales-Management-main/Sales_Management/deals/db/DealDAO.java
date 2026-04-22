@@ -15,15 +15,10 @@ public class DealDAO {
     private ErpDatabaseFacade facade;
 
     public DealDAO() {
-        initializeFacade();
-    }
-
-    private void initializeFacade() {
         try {
             this.facade = new ErpDatabaseFacade();
-        } catch (Throwable e) {
+        } catch (Exception e) {
             System.err.println("Failed to initialize ErpDatabaseFacade in DealDAO: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
